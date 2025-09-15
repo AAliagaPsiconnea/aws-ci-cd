@@ -2,6 +2,7 @@ name: CI Pipeline
 on:
   push:
     branches: [main]
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -15,29 +16,43 @@ jobs:
           aws-region: ${{ secrets.AWS_REGION }}
 
       - id: whoami
-        run: aws sts get-caller-identity
+        run: |
+          echo "account=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
+          aws sts get-caller-identity
+
+      - id: registry
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ACCOUNT: ${{ steps.whoami.outputs.account }}
+        run: |
+          echo "value=${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> "$GITHUB_OUTPUT"
+          echo "${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
 
       - id: ensure-repo
         env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
         run: |
-          aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" || \
-          aws ecr create-repository --repository-names "$ECR_REPOSITORY"
+          aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" --region "$AWS_REGION" || aws ecr create-repository --repository-name "$ECR_REPOSITORY" --region "$AWS_REGION"
 
       - id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          REGISTRY: ${{ steps.registry.outputs.value }}
+        run: |
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
 
       - id: build-and-push
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+          REGISTRY: ${{ steps.registry.outputs.value }}
+          REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "registry=$ECR_REGISTRY"
-          echo "repository=$ECR_REPOSITORY"
-          docker build -t "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" .
-          docker push "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          echo "$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" > image.txt
+          echo "registry=$REGISTRY"
+          echo "repository=$REPOSITORY"
+          docker build -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" .
+          docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+          echo "$REGISTRY/$REPOSITORY:$IMAGE_TAG" > image.txt
 
       - uses: actions/upload-artifact@v4
         with:
