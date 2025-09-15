@@ -63,7 +63,4 @@ ENV TZ=Europe/Madrid
 RUN echo "date.timezone=Europe/Madrid" > /usr/local/etc/php/conf.d/timezone.ini
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-#EXPOSE 80
-#/usr/local/sbin/php-fpm -R
-##CMD ["php-fpm"]
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
