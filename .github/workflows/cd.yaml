@@ -17,24 +17,25 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Download image artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: image
-          path: .
-
-      - id: read-image
+      - id: whoami
         run: |
-          IMAGE=$(cat image.txt)
-          echo "Image from artifact: $IMAGE"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          echo "account=$ACCOUNT" >> "$GITHUB_OUTPUT"
+
+      - id: registry
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ACCOUNT: ${{ steps.whoami.outputs.account }}
+        run: |
+          REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          echo "value=$REGISTRY" >> "$GITHUB_OUTPUT"
 
       - id: render-task-definition
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
           task-definition: ${{ secrets.ECS_TASK_DEFINITION }}
           container-name: laravel-app
-          image: ${{ steps.read-image.outputs.image }}
+          image: ${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
 
       - id: debug-taskdef
         run: |
