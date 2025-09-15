@@ -3,29 +3,43 @@ on:
   workflow_run:
     workflows: ["CI Pipeline"]
     types: [completed]
+
 jobs:
   deploy:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
-      - uses: actions/download-artifact@v4
+
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
         with:
           name: image
           path: .
+
       - id: read-image
-        run: echo "image=$(cat image.txt)" >> $GITHUB_OUTPUT
+        run: |
+          IMAGE=$(cat image.txt)
+          echo "Image from artifact: $IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
       - id: render-task-definition
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: task-definition.json
+          task-definition: ${{ secrets.ECS_TASK_DEFINITION }}
           container-name: laravel-app
           image: ${{ steps.read-image.outputs.image }}
+
+      - id: debug-taskdef
+        run: |
+          echo "Rendered task definition file: ${{ steps.render-task-definition.outputs.task-definition }}"
+
       - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
           task-definition: ${{ steps.render-task-definition.outputs.task-definition }}

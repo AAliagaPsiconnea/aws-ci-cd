@@ -1,12 +1,11 @@
-name: CD Pipeline
+name: CI Pipeline
 on:
-  workflow_run:
-    workflows: ["CI Pipeline"]
-    types: [completed]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
-  deploy:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+  build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,32 +16,53 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Download image artifact
-        uses: actions/download-artifact@v4
+      - id: whoami
+        run: |
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          echo "Account is: $ACCOUNT"
+          echo "account=$ACCOUNT" >> "$GITHUB_OUTPUT"
+
+      - id: registry
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ACCOUNT: ${{ steps.whoami.outputs.account }}
+        run: |
+          REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          echo "ECR Registry is: $REGISTRY"
+          echo "value=$REGISTRY" >> "$GITHUB_OUTPUT"
+
+      - id: ensure-repo
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+        run: |
+          echo "Ensuring repository: $ECR_REPOSITORY in $AWS_REGION"
+          aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" --region "$AWS_REGION" \
+          || aws ecr create-repository --repository-name "$ECR_REPOSITORY" --region "$AWS_REGION"
+
+      - id: login-ecr
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          REGISTRY: ${{ steps.registry.outputs.value }}
+        run: |
+          echo "Logging in to ECR: $REGISTRY in region $AWS_REGION"
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY"
+
+      - id: build-and-push
+        env:
+          REGISTRY: ${{ steps.registry.outputs.value }}
+          REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          FULL_IMAGE="$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+          echo "Building and pushing image: $FULL_IMAGE"
+          docker build -t "$FULL_IMAGE" .
+          docker push "$FULL_IMAGE"
+          echo "$FULL_IMAGE" > image.txt
+          echo "image=$FULL_IMAGE" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
         with:
           name: image
-          path: .
-
-      - id: read-image
-        run: |
-          IMAGE=$(cat image.txt)
-          echo "Image from artifact: $IMAGE"
-          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
-
-      - id: render-task-definition
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: ${{ secrets.ECS_TASK_DEFINITION }}
-          container-name: laravel-app
-          image: ${{ steps.read-image.outputs.image }}
-
-      - id: debug-taskdef
-        run: |
-          echo "Rendered task definition file: ${{ steps.render-task-definition.outputs.task-definition }}"
-
-      - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
-          service: ${{ secrets.ECS_SERVICE_NAME }}
-          cluster: ${{ secrets.ECS_CLUSTER_NAME }}
-          wait-for-service-stability: true
+          path: image.txt
