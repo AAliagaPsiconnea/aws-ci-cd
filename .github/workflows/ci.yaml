@@ -3,6 +3,7 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -17,30 +18,36 @@ jobs:
 
       - id: whoami
         run: |
-          echo "account=$(aws sts get-caller-identity --query Account --output text)" >> "$GITHUB_OUTPUT"
-          aws sts get-caller-identity
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          echo "Account is: $ACCOUNT"
+          echo "account=$ACCOUNT" >> "$GITHUB_OUTPUT"
 
       - id: registry
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           ACCOUNT: ${{ steps.whoami.outputs.account }}
         run: |
-          echo "value=${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com" >> "$GITHUB_OUTPUT"
-          echo "${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          echo "ECR Registry is: $REGISTRY"
+          echo "value=$REGISTRY" >> "$GITHUB_OUTPUT"
 
       - id: ensure-repo
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
         run: |
-          aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" --region "$AWS_REGION" || aws ecr create-repository --repository-name "$ECR_REPOSITORY" --region "$AWS_REGION"
+          echo "Ensuring repository: $ECR_REPOSITORY in $AWS_REGION"
+          aws ecr describe-repositories --repository-names "$ECR_REPOSITORY" --region "$AWS_REGION" \
+          || aws ecr create-repository --repository-name "$ECR_REPOSITORY" --region "$AWS_REGION"
 
       - id: login-ecr
         env:
           AWS_REGION: ${{ secrets.AWS_REGION }}
           REGISTRY: ${{ steps.registry.outputs.value }}
         run: |
-          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+          echo "Logging in to ECR: $REGISTRY in region $AWS_REGION"
+          aws ecr get-login-password --region "$AWS_REGION" \
+            | docker login --username AWS --password-stdin "$REGISTRY"
 
       - id: build-and-push
         env:
@@ -48,11 +55,12 @@ jobs:
           REPOSITORY: ${{ secrets.ECR_REPOSITORY_NAME }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          echo "registry=$REGISTRY"
-          echo "repository=$REPOSITORY"
-          docker build -t "$REGISTRY/$REPOSITORY:$IMAGE_TAG" .
-          docker push "$REGISTRY/$REPOSITORY:$IMAGE_TAG"
-          echo "$REGISTRY/$REPOSITORY:$IMAGE_TAG" > image.txt
+          FULL_IMAGE="$REGISTRY/$REPOSITORY:$IMAGE_TAG"
+          echo "Building and pushing image: $FULL_IMAGE"
+          docker build -t "$FULL_IMAGE" .
+          docker push "$FULL_IMAGE"
+          echo "$FULL_IMAGE" > image.txt
+          echo "image=$FULL_IMAGE" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
         with:
