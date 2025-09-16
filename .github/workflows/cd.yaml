@@ -30,6 +30,17 @@ jobs:
           REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           echo "value=$REGISTRY" >> "$GITHUB_OUTPUT"
 
+      - name: Extract release tag from triggering branch
+        run: |
+          REF="${{ github.event.workflow_run.head_branch }}"
+          if [[ "$REF" == release/* ]]; then
+            TAG="${REF#release/}"
+          else
+            TAG="unknown"
+          fi
+          echo "aws_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Using release tag: $TAG"
+
       - name: Get latest task definition JSON
         run: |
           aws ecs describe-task-definition \
@@ -39,7 +50,6 @@ jobs:
 
       - name: Fetch env vars from SSM Parameter Store
         run: |
-          # Adjust PARAMETER_STORE_PATH secret to match your hierarchy, e.g. /myapp/prod
           PARAMS=$(aws ssm get-parameters-by-path \
             --path "/${{ secrets.PARAMETER_STORE_PATH }}" \
             --with-decryption \
@@ -49,13 +59,12 @@ jobs:
 
           echo "Fetched $(echo $PARAMS | jq length) parameters from SSM"
 
-          # Convert into ECS env format: [{name: "FOO", value: "bar"}, ...]
           echo "$PARAMS" | jq '[.[] | {name: (.Name | split("/")[-1]), value: .Value}]' > env.json
 
-      - name: Inject new image and env vars
+      - name: Inject image + env vars
         run: |
-          IMAGE="${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest"
-          echo "Using image: $IMAGE"
+          IMAGE="${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:${{ steps.extract-release-tag.outputs.aws_tag }}"
+          echo "Deploying image: $IMAGE"
 
           jq --arg IMAGE "$IMAGE" --slurpfile ENV env.json \
              '.containerDefinitions[0].image=$IMAGE

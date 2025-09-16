@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.extract-tag.outputs.aws_tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -31,10 +33,11 @@ jobs:
 
       - id: extract-tag
         run: |
+          # Extract version from release/<tag> branch
           if [[ "${GITHUB_HEAD_REF}" == release/* ]]; then
             TAG="${GITHUB_HEAD_REF#release/}"
           else
-            TAG="latest"
+            TAG="unknown"
           fi
           echo "aws_tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Using image tag: $TAG"
@@ -62,12 +65,7 @@ jobs:
           IMAGE_TAG: ${{ steps.extract-tag.outputs.aws_tag }}
         run: |
           FULL_IMAGE="$REGISTRY/$REPOSITORY:$IMAGE_TAG"
-          LATEST_IMAGE="$REGISTRY/$REPOSITORY:latest"
-
           echo "Building and pushing $FULL_IMAGE"
           docker build -t "$FULL_IMAGE" .
           docker push "$FULL_IMAGE"
-
-          echo "Tagging and pushing $LATEST_IMAGE"
-          docker tag "$FULL_IMAGE" "$LATEST_IMAGE"
-          docker push "$LATEST_IMAGE"
+          echo "image=$FULL_IMAGE" >> "$GITHUB_OUTPUT"
