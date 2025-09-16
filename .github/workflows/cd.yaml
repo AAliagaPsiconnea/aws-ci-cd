@@ -70,10 +70,13 @@ jobs:
 
           jq -c . env.json > env.min.json
 
-          jq --arg IMAGE "$IMAGE" --argjson ENV "$(cat env.min.json)" \
+          jq --arg IMAGE "$IMAGE" \
             '.containerDefinitions[0].image=$IMAGE
-              | .containerDefinitions[0].environment=$ENV' \
-            task-def.json > new-task-def.json
+              | .containerDefinitions[0].environment=input' \
+            task-def.json env.min.json > new-task-def.json
+
+          echo "Final task definition:"
+          cat new-task-def.json | jq .
 
       - name: Register new task definition revision
         run: |
