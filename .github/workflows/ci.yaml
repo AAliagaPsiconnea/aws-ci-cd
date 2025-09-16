@@ -1,6 +1,6 @@
 name: CI Pipeline
 on:
-  push:
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
@@ -37,7 +37,7 @@ jobs:
           if [[ "${GITHUB_HEAD_REF}" == release/* ]]; then
             TAG="${GITHUB_HEAD_REF#release/}"
           else
-            TAG="unknown"
+            TAG="latest"
           fi
           echo "aws_tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Using image tag: $TAG"
