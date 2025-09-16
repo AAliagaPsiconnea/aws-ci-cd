@@ -30,7 +30,7 @@ jobs:
           REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           echo "value=$REGISTRY" >> "$GITHUB_OUTPUT"
 
-      - name: Extract release tag from triggering branch
+      - id: extract-release-tag
         run: |
           REF="${{ github.event.workflow_run.head_branch }}"
           if [[ "$REF" == release/* ]]; then
