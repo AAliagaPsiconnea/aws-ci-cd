@@ -1,6 +1,6 @@
 name: CI Pipeline
 on:
-  pull_request:
+  push:
     branches: [main]
   workflow_dispatch:
 
@@ -33,14 +33,13 @@ jobs:
 
       - id: extract-tag
         run: |
-          # Extract version from release/<tag> branch
-          if [[ "${GITHUB_HEAD_REF}" == release/* ]]; then
-            TAG="${GITHUB_HEAD_REF#release/}"
-          else
-            TAG="latest"
+          TAG=$(git log -1 --pretty=%B | grep -oE 'release/[0-9A-Za-z.\-]+' | cut -d/ -f2)
+          if [[ -z "$TAG" ]]; then
+            echo "❌ Could not extract release tag"
+            exit 1
           fi
           echo "aws_tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Using image tag: $TAG"
+          echo "Using release tag: $TAG"
 
       - id: ensure-repo
         env:
