@@ -30,20 +30,61 @@ jobs:
           REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           echo "value=$REGISTRY" >> "$GITHUB_OUTPUT"
 
-      - id: render-task-definition
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: ${{ secrets.ECS_TASK_DEFINITION }}
-          container-name: laravel-app
-          image: ${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest
-
-      - id: debug-taskdef
+      - name: Extract release tag from triggering branch
         run: |
-          echo "Rendered task definition file: ${{ steps.render-task-definition.outputs.task-definition }}"
+          REF="${{ github.event.workflow_run.head_branch }}"
+          if [[ "$REF" == release/* ]]; then
+            TAG="${REF#release/}"
+          else
+            TAG="unknown"
+          fi
+          echo "aws_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Using release tag: $TAG"
 
-      - uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.render-task-definition.outputs.task-definition }}
-          service: ${{ secrets.ECS_SERVICE_NAME }}
-          cluster: ${{ secrets.ECS_CLUSTER_NAME }}
-          wait-for-service-stability: true
+      - name: Get latest task definition JSON
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ secrets.ECS_TASK_DEFINITION }} \
+            --query taskDefinition \
+            --output json > task-def.json
+
+      - name: Fetch env vars from SSM Parameter Store
+        run: |
+          PARAMS=$(aws ssm get-parameters-by-path \
+            --path "/${{ secrets.PARAMETER_STORE_PATH }}" \
+            --with-decryption \
+            --recursive \
+            --query "Parameters[].{Name:Name,Value:Value}" \
+            --output json)
+
+          echo "Fetched $(echo $PARAMS | jq length) parameters from SSM"
+
+          echo "$PARAMS" | jq '[.[] | {name: (.Name | split("/")[-1]), value: .Value}]' > env.json
+
+      - name: Inject image + env vars
+        run: |
+          IMAGE="${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:${{ steps.extract-release-tag.outputs.aws_tag }}"
+          echo "Deploying image: $IMAGE"
+
+          jq --arg IMAGE "$IMAGE" --slurpfile ENV env.json \
+             '.containerDefinitions[0].image=$IMAGE
+              | .containerDefinitions[0].environment=$ENV[0]' \
+             task-def.json > new-task-def.json
+
+      - name: Register new task definition revision
+        run: |
+          NEW_REVISION=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task-def.json \
+            --query taskDefinition.taskDefinitionArn \
+            --output text)
+          echo "new_revision=$NEW_REVISION" >> $GITHUB_ENV
+          echo "Registered $NEW_REVISION"
+
+      - name: Deploy new revision to ECS service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ secrets.ECS_CLUSTER_NAME }} \
+            --service ${{ secrets.ECS_SERVICE_NAME }} \
+            --task-definition "$new_revision" \
+            --force-new-deployment \
+            --region ${{ secrets.AWS_REGION }}
