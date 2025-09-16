@@ -30,13 +30,12 @@ jobs:
           REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           echo "value=$REGISTRY" >> "$GITHUB_OUTPUT"
 
-      - name: Extract release tag from triggering branch
+      - id: extract-release-tag
         run: |
-          REF="${{ github.event.workflow_run.head_branch }}"
-          if [[ "$REF" == release/* ]]; then
-            TAG="${REF#release/}"
-          else
-            TAG="unknown"
+          TAG=$(git log -1 --pretty=%B | grep -oE 'release/[0-9A-Za-z.\-]+' | cut -d/ -f2)
+          if [[ -z "$TAG" ]]; then
+            echo "❌ Could not extract release tag"
+            exit 1
           fi
           echo "aws_tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Using release tag: $TAG"
