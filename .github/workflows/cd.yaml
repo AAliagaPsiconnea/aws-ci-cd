@@ -30,39 +30,52 @@ jobs:
           REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           echo "value=$REGISTRY" >> "$GITHUB_OUTPUT"
 
-      - name: Prepare new task definition with env vars
-        id: taskdef
+      - name: Get latest task definition JSON
         run: |
-          IMAGE="${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest"
-          BASE_TASK_DEF=${{ secrets.ECS_TASK_DEFINITION }}   # path to base task-def.json in repo
+          aws ecs describe-task-definition \
+            --task-definition ${{ secrets.ECS_TASK_DEFINITION }} \
+            --query taskDefinition \
+            --output json > task-def.json
 
-          # Export all SSM params under a given path
+      - name: Fetch env vars from SSM Parameter Store
+        run: |
+          # Adjust PARAMETER_STORE_PATH secret to match your hierarchy, e.g. /myapp/prod
           PARAMS=$(aws ssm get-parameters-by-path \
             --path "/${{ secrets.PARAMETER_STORE_PATH }}" \
             --with-decryption \
+            --recursive \
             --query "Parameters[].{Name:Name,Value:Value}" \
             --output json)
 
           echo "Fetched $(echo $PARAMS | jq length) parameters from SSM"
 
-          # Convert SSM params into ECS environment array
-          ENV_VARS=$(echo "$PARAMS" | jq '[.[] | {name: (.Name | split("/")[-1]), value: .Value}]')
+          # Convert into ECS env format: [{name: "FOO", value: "bar"}, ...]
+          echo "$PARAMS" | jq '[.[] | {name: (.Name | split("/")[-1]), value: .Value}]' > env.json
 
-          # Create new task definition with updated image + env vars
-          jq --arg IMAGE "$IMAGE" --argjson ENV "$ENV_VARS" \
-            '.containerDefinitions[0].image=$IMAGE | .containerDefinitions[0].environment=$ENV' \
-            $BASE_TASK_DEF > new-task-def.json
-
-          echo "file=new-task-def.json" >> $GITHUB_OUTPUT
-
-      - name: Register new task definition
+      - name: Inject new image and env vars
         run: |
-          aws ecs register-task-definition --cli-input-json file://new-task-def.json
+          IMAGE="${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:latest"
+          echo "Using image: $IMAGE"
 
-      - name: Deploy to ECS service
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: new-task-def.json
-          service: ${{ secrets.ECS_SERVICE_NAME }}
-          cluster: ${{ secrets.ECS_CLUSTER_NAME }}
-          wait-for-service-stability: true
+          jq --arg IMAGE "$IMAGE" --slurpfile ENV env.json \
+             '.containerDefinitions[0].image=$IMAGE
+              | .containerDefinitions[0].environment=$ENV[0]' \
+             task-def.json > new-task-def.json
+
+      - name: Register new task definition revision
+        run: |
+          NEW_REVISION=$(aws ecs register-task-definition \
+            --cli-input-json file://new-task-def.json \
+            --query taskDefinition.taskDefinitionArn \
+            --output text)
+          echo "new_revision=$NEW_REVISION" >> $GITHUB_ENV
+          echo "Registered $NEW_REVISION"
+
+      - name: Deploy new revision to ECS service
+        run: |
+          aws ecs update-service \
+            --cluster ${{ secrets.ECS_CLUSTER_NAME }} \
+            --service ${{ secrets.ECS_SERVICE_NAME }} \
+            --task-definition "$new_revision" \
+            --force-new-deployment \
+            --region ${{ secrets.AWS_REGION }}

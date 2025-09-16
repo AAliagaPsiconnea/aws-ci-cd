@@ -31,16 +31,13 @@ jobs:
 
       - id: extract-tag
         run: |
-          # GitHub always provides the source ref of the merge commit
-          REF_NAME="${{ github.ref_name }}"   # e.g. main
-          HEAD_REF="${{ github.head_ref }}"   # e.g. release/v1.2.3 when merging
-          if [[ -n "$HEAD_REF" ]]; then
-            TAG="${HEAD_REF#release/}"
+          if [[ "${GITHUB_HEAD_REF}" == release/* ]]; then
+            TAG="${GITHUB_HEAD_REF#release/}"
           else
             TAG="latest"
           fi
           echo "aws_tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Using AWS tag: $TAG"
+          echo "Using image tag: $TAG"
 
       - id: ensure-repo
         env:
@@ -67,10 +64,10 @@ jobs:
           FULL_IMAGE="$REGISTRY/$REPOSITORY:$IMAGE_TAG"
           LATEST_IMAGE="$REGISTRY/$REPOSITORY:latest"
 
-          echo "Building and pushing $FULL_IMAGE and $LATEST_IMAGE"
-
+          echo "Building and pushing $FULL_IMAGE"
           docker build -t "$FULL_IMAGE" .
-          docker tag "$FULL_IMAGE" "$LATEST_IMAGE"
-
           docker push "$FULL_IMAGE"
+
+          echo "Tagging and pushing $LATEST_IMAGE"
+          docker tag "$FULL_IMAGE" "$LATEST_IMAGE"
           docker push "$LATEST_IMAGE"
