@@ -30,7 +30,7 @@ jobs:
           REGISTRY="${ACCOUNT}.dkr.ecr.${AWS_REGION}.amazonaws.com"
           echo "value=$REGISTRY" >> "$GITHUB_OUTPUT"
 
-      - id: extract-release-tag
+      - name: Extract release tag from triggering branch
         run: |
           REF="${{ github.event.workflow_run.head_branch }}"
           if [[ "$REF" == release/* ]]; then
@@ -67,9 +67,9 @@ jobs:
           echo "Deploying image: $IMAGE"
 
           jq --arg IMAGE "$IMAGE" --slurpfile ENV env.json \
-             '.containerDefinitions[0].image=$IMAGE
-              | .containerDefinitions[0].environment=$ENV[0]' \
-             task-def.json > new-task-def.json
+            '.containerDefinitions[0].image=$IMAGE
+              | .containerDefinitions[0].environment=$ENV' \
+            task-def.json > new-task-def.json
 
       - name: Register new task definition revision
         run: |
