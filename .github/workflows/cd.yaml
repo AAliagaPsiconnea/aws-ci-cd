@@ -63,12 +63,19 @@ jobs:
 
           echo "$PARAMS" | jq '[.[] | {name: (.Name | split("/")[-1]), value: .Value}]' > env.json
 
+      - name: Debug env.json
+        run: |
+          echo "Contents of env.json:"
+          cat env.json
+          echo "----"
+          jq . env.json
+
       - name: Inject image + env vars
         run: |
           IMAGE="${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:${{ steps.extract-release-tag.outputs.aws_tag }}"
           echo "Deploying image: $IMAGE"
 
-          jq --arg IMAGE "$IMAGE" --slurpfile ENV env.json \
+          jq --arg IMAGE "$IMAGE" --argjson ENV "$(cat env.json)" \
             '.containerDefinitions[0].image=$IMAGE
               | .containerDefinitions[0].environment=$ENV' \
             task-def.json > new-task-def.json
