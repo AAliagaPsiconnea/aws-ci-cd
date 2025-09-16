@@ -68,10 +68,11 @@ jobs:
           IMAGE="${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:${{ steps.extract-release-tag.outputs.aws_tag }}"
           echo "Deploying image: $IMAGE"
 
-          jq --arg IMAGE "$IMAGE" \
+          jq -c . env.json > env.min.json
+
+          jq --arg IMAGE "$IMAGE" --argjson ENV "$(cat env.min.json)" \
             '.containerDefinitions[0].image=$IMAGE
-              | .containerDefinitions[0].environment= $envfile' \
-            --argfile envfile env.json \
+              | .containerDefinitions[0].environment=$ENV' \
             task-def.json > new-task-def.json
 
       - name: Register new task definition revision
