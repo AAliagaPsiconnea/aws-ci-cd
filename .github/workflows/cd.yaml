@@ -52,7 +52,7 @@ jobs:
       - name: Fetch env vars from SSM Parameter Store
         run: |
           PARAMS=$(aws ssm get-parameters-by-path \
-            --path "/${{ secrets.PARAMETER_STORE_PATH }}" \
+            --path "/${{ secrets.PARAMETER_STORE_PATH }}/" \
             --with-decryption \
             --recursive \
             --query "Parameters[].{Name:Name,Value:Value}" \
