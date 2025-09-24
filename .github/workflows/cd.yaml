@@ -51,7 +51,7 @@ jobs:
 
       - name: Fetch env vars from SSM Parameter Store
         run: |
-          SERVICE_NAME="${{ secrets.SERVICE_NAME }}"
+          SERVICE_NAME="${{ secrets.PARAMETER_STORE_PATH }}"
 
           PARAMS=$(aws ssm get-parameters-by-path \
             --path "/emotinet/pro/$SERVICE_NAME/" \
