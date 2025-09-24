@@ -51,8 +51,10 @@ jobs:
 
       - name: Fetch env vars from SSM Parameter Store
         run: |
+          SERVICE_NAME="${{ secrets.SERVICE_NAME }}"
+
           PARAMS=$(aws ssm get-parameters-by-path \
-            --path "/emotinet/pro/${{ secrets.SERVICE_NAME }}/" \
+            --path "/emotinet/pro/$SERVICE_NAME/" \
             --with-decryption \
             --recursive \
             --query "Parameters[].{Name:Name,Value:Value}" \
