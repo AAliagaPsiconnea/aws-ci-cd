@@ -49,7 +49,7 @@ jobs:
             | jq 'del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)' \
             > task-def.json
 
-      - name: Fetch env vars from SSM Parameter Store
+      - name: Fetch secrets from SSM Parameter Store
         run: |
           SERVICE_NAME="${{ secrets.PARAMETER_STORE_PATH }}"
 
@@ -57,26 +57,26 @@ jobs:
             --path "/emotinet/pro/$SERVICE_NAME/" \
             --with-decryption \
             --recursive \
-            --query "Parameters[].{Name:Name,Value:Value}" \
+            --query "Parameters[].{Name:Name}" \
             --output json)
 
           echo "Fetched $(echo $PARAMS | jq length) parameters from SSM"
 
           echo "$PARAMS" \
-            | jq '[.[] | {name: (.Name | split("/")[-1]), value: .Value}]' \
-            > env.json
+            | jq '[.[] | {name: (.Name | split("/")[-1]), valueFrom: .Name}]' \
+            > secrets.json
 
-      - name: Inject image + env vars
+      - name: Inject image + secrets
         run: |
           IMAGE="${{ steps.registry.outputs.value }}/${{ secrets.ECR_REPOSITORY_NAME }}:${{ steps.extract-release-tag.outputs.aws_tag }}"
           echo "Deploying image: $IMAGE"
 
-          jq -c . env.json > env.min.json
+          jq -c . secrets.json > secrets.min.json
 
           jq --arg IMAGE "$IMAGE" \
             '.containerDefinitions[0].image=$IMAGE
-              | .containerDefinitions[0].environment=input' \
-            task-def.json env.min.json > new-task-def.json
+              | .containerDefinitions[0].secrets=input' \
+            task-def.json secrets.min.json > new-task-def.json
 
           echo "Final task definition:"
           cat new-task-def.json | jq .
