@@ -75,7 +75,8 @@ jobs:
 
           jq --arg IMAGE "$IMAGE" \
             '.containerDefinitions[0].image=$IMAGE
-              | .containerDefinitions[0].secrets=input' \
+            | .containerDefinitions[0].environment=[]
+            | .containerDefinitions[0].secrets=input' \
             task-def.json secrets.min.json > new-task-def.json
 
           echo "Final task definition:"
