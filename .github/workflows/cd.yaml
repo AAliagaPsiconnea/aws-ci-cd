@@ -32,7 +32,7 @@ jobs:
 
       - id: extract-release-tag
         run: |
-          TAG=$(git log -1 --pretty=%B | grep -oE 'release/[0-9A-Za-z.\-]+' | cut -d/ -f2)
+          TAG=$(git log -1 --pretty=%B | grep -oE 'release/[0-9A-Za-z._\-]+' | cut -d/ -f2)
           if [[ -z "$TAG" ]]; then
             echo "❌ Could not extract release tag"
             exit 1
